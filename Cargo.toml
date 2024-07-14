@@ -1,0 +1,8 @@
+[workspace]
+resolver = "2"
+members = [
+    "base64",
+]
+
+[profile.dev]
+opt-level = 2

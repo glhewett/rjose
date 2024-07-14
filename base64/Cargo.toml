@@ -1,0 +1,12 @@
+[package]
+name = "rjose-base64"
+version = "0.0.1"
+authors = ["Greg Hewett <glh@strand3.com>"]
+license = "Apache-2.0 OR MIT"
+keywords = ["json", "jose"]
+readme = "README.md"
+edition = "2021"
+
+[dependencies]
+serde = {version = "1", features = ["serde_derive"]}
+serde_json = "1"
