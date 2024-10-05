@@ -1,8 +1,13 @@
-[workspace]
-resolver = "2"
-members = [
-    "base64",
-]
+[package]
+name = "rjose"
+version = "0.0.1"
+authors = ["Greg Hewett <glh@strand3.com>"]
+license-file = "LICENSE"
+keywords = ["json", "jose"]
+readme = "README.md"
+edition = "2021"
 
-[profile.dev]
-opt-level = 2
+[dependencies]
+serde = { version ="1", features = ["derive"] }
+serde_derive = "1"
+serde_json = "1"
