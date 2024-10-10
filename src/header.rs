@@ -11,7 +11,7 @@ pub enum Attribute {
 }
 
 pub enum Algorithm {
-    None = 0,
+    None,
     EcdhEs,
     RsaOaep,
     Rsa15,
@@ -31,11 +31,51 @@ pub enum Algorithm {
     Es384,
     Es512,
 }
+
+impl Algorithm {
+    pub fn to_string(&self) -> String {
+        match self {
+            Algorithm::None => "none",
+            Algorithm::EcdhEs => "ECDH-ES",
+            Algorithm::RsaOaep => "RSA-OAEP",
+            Algorithm::Rsa15 => "RSA1_5",
+            Algorithm::A128kw => "A128KW",
+            Algorithm::A192kw => "A192KW",
+            Algorithm::A256kw => "A256KW",
+            Algorithm::Ps256 => "PS256",
+            Algorithm::Ps384 => "PS384",
+            Algorithm::Ps512 => "PS512",
+            Algorithm::Rs256 => "RS256",
+            Algorithm::Rs384 => "RS384",
+            Algorithm::Rs512 => "RS512",
+            Algorithm::Hs256 => "HS256",
+            Algorithm::Hs384 => "HS384",
+            Algorithm::Hs512 => "HS512",
+            Algorithm::Es256 => "ES256",
+            Algorithm::Es384 => "ES384",
+            Algorithm::Es512 => "ES512",
+        }
+        .to_string()
+    }
+}
+
 pub enum Encryption {
     A256gcm,
     A128cbcHs256,
     A192cbcHs384,
     A256cbcHs512,
+}
+
+impl Encryption {
+    pub fn to_string(&self) -> String {
+        match self {
+            Encryption::A256gcm => "A256GCM",
+            Encryption::A128cbcHs256 => "A128CBC-HS256",
+            Encryption::A192cbcHs384 => "A192CBC-HS384",
+            Encryption::A256cbcHs512 => "A256CBC-HS512",
+        }
+        .to_string()
+    }
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -72,7 +112,7 @@ impl Default for Header {
 }
 
 impl Header {
-    pub fn new(alg: &str, enc: &str) -> Header {
+    pub fn new(alg: &Algorithm, enc: &Encryption) -> Header {
         Header {
             alg: alg.to_string(),
             enc: enc.to_string(),
@@ -80,129 +120,28 @@ impl Header {
         }
     }
 
-    // fn set(&mut self, attr: &Attribute, value: &str) {
-    //     match attr {
-    //         Attribute::Alg => self.alg = Some(value.to_string()),
-    //     }
-    // }
+    pub fn set(&mut self, attr: &Attribute, value: &str) {
+        match attr {
+            Attribute::Cty => self.cty = Some(value.to_string()),
+            Attribute::Kid => self.kid = Some(value.to_string()),
+            Attribute::Epk => self.epk = Some(value.to_string()),
+            Attribute::Apu => self.apu = Some(value.to_string()),
+            Attribute::Apv => self.apv = Some(value.to_string()),
+            _ => (),
+        }
+    }
 
-    // fn unset(&mut self, attr: Attribute) {
-    //     match attr {
-    //         Attribute::Alg => self.alg = None,
-    //     }
-    // }
+    pub fn unset(&mut self, attr: Attribute) {
+        match attr {
+            Attribute::Cty => self.cty = None,
+            Attribute::Kid => self.kid = None,
+            Attribute::Epk => self.epk = None,
+            Attribute::Apu => self.apu = None,
+            Attribute::Apv => self.apv = None,
+            _ => (),
+        }
+    }
 }
-
-//////////////////////////////////////////////////////////////////////////////////
-//cjose_header_t *cjose_header_new(cjose_err *err)
-//{
-//    cjose_header_t *retval = (cjose_header_t *)json_object();
-//    if (NULL == retval)
-//    {
-//        CJOSE_ERROR(err, CJOSE_ERR_NO_MEMORY);
-//    }
-//    return retval;
-//}
-//
-//////////////////////////////////////////////////////////////////////////////////
-//cjose_header_t *cjose_header_retain(cjose_header_t *header)
-//{
-//    if (NULL != header)
-//    {
-//        header = (cjose_header_t *)json_incref((json_t *)header);
-//    }
-//    return header;
-//}
-//
-//////////////////////////////////////////////////////////////////////////////////
-//void cjose_header_release(cjose_header_t *header)
-//{
-//    if (NULL != header)
-//    {
-//        json_decref((json_t *)header);
-//    }
-//}
-//
-//////////////////////////////////////////////////////////////////////////////////
-//bool cjose_header_set(cjose_header_t *header, const char *attr, const char *value, cjose_err *err)
-//{
-//    if (NULL == header || NULL == attr || NULL == value)
-//    {
-//        CJOSE_ERROR(err, CJOSE_ERR_INVALID_ARG);
-//        return false;
-//    }
-//
-//    json_t *value_obj = json_string(value);
-//    if (NULL == value_obj)
-//    {
-//        CJOSE_ERROR(err, CJOSE_ERR_NO_MEMORY);
-//        return false;
-//    }
-//
-//    json_object_set_new((json_t *)header, attr, value_obj);
-//
-//    return true;
-//}
-//
-//////////////////////////////////////////////////////////////////////////////////
-//const char *cjose_header_get(cjose_header_t *header, const char *attr, cjose_err *err)
-//{
-//    if (NULL == header || NULL == attr)
-//    {
-//        CJOSE_ERROR(err, CJOSE_ERR_INVALID_ARG);
-//        return NULL;
-//    }
-//
-//    json_t *value_obj = json_object_get((json_t *)header, attr);
-//    if (NULL == value_obj)
-//    {
-//        return NULL;
-//    }
-//
-//    return json_string_value(value_obj);
-//}
-//
-//////////////////////////////////////////////////////////////////////////////////
-//bool cjose_header_set_raw(cjose_header_t *header, const char *attr, const char *value, cjose_err *err)
-//{
-//    if (NULL == header || NULL == attr || NULL == value)
-//    {
-//        CJOSE_ERROR(err, CJOSE_ERR_INVALID_ARG);
-//        return false;
-//    }
-//
-//    json_error_t j_err;
-//    json_t *value_obj = json_loads(value, 0, &j_err);
-//    if (NULL == value_obj)
-//    {
-//        // unfortunately, it's not possible to tell whether the error is due
-//        // to syntax, or memory shortage. See https://github.com/akheron/jansson/issues/352
-//        CJOSE_ERROR(err, CJOSE_ERR_INVALID_ARG);
-//        return false;
-//    }
-//
-//    json_object_set_new((json_t *)header, attr, value_obj);
-//
-//    return true;
-//}
-//
-//////////////////////////////////////////////////////////////////////////////////
-//char *cjose_header_get_raw(cjose_header_t *header, const char *attr, cjose_err *err)
-//{
-//    if (NULL == header || NULL == attr)
-//    {
-//        CJOSE_ERROR(err, CJOSE_ERR_INVALID_ARG);
-//        return NULL;
-//    }
-//
-//    json_t *value_obj = json_object_get((json_t *)header, attr);
-//    if (NULL == value_obj)
-//    {
-//        return NULL;
-//    }
-//
-//    return json_dumps(value_obj, JSON_COMPACT);
-//}
 
 #[cfg(test)]
 mod test {
@@ -210,8 +149,16 @@ mod test {
 
     #[test]
     fn test_header() {
-        let header = Header::new("RSA-OAEP", "A256GCM");
+        let mut header = Header::new(&Algorithm::RsaOaep, &Encryption::A256gcm);
+
         let header_str = serde_json::to_string(&header).unwrap();
         assert_eq!(r#"{"alg":"RSA-OAEP","enc":"A256GCM"}"#, header_str);
+
+        header.set(&Attribute::Kid, "foobar");
+        let header_str = serde_json::to_string(&header).unwrap();
+        assert_eq!(
+            r#"{"alg":"RSA-OAEP","enc":"A256GCM","kid":"foobar"}"#,
+            header_str
+        );
     }
 }
