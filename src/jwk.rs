@@ -1,25 +1,30 @@
-use crate::base64::{decode, Base64Variant};
+use rsa::traits::PublicKeyParts;
+use rsa::{BigUint, RsaPrivateKey, RsaPublicKey};
 
-const CJOSE_JWK_EC_P_256_STR: &str = "P-256";
-const CJOSE_JWK_EC_P_384_STR: &str = "P-384";
-const CJOSE_JWK_EC_P_521_STR: &str = "P-521";
-const CJOSE_JWK_KTY_STR: &str = "kty";
-const CJOSE_JWK_KID_STR: &str = "kid";
-// const CJOSE_JWK_KTY_EC_STR: &str = "EC";
-// const CJOSE_JWK_KTY_RSA_STR: &str = "RSA";
-// const CJOSE_JWK_KTY_OCT_STR: &str = "oct";
-const CJOSE_JWK_CRV_STR: &str = "crv";
-const CJOSE_JWK_X_STR: &str = "x";
-const CJOSE_JWK_Y_STR: &str = "y";
-const CJOSE_JWK_D_STR: &str = "d";
-const CJOSE_JWK_N_STR: &str = "n";
-const CJOSE_JWK_E_STR: &str = "e";
-const CJOSE_JWK_P_STR: &str = "p";
-const CJOSE_JWK_Q_STR: &str = "q";
-const CJOSE_JWK_DP_STR: &str = "dp";
-const CJOSE_JWK_DQ_STR: &str = "dq";
-const CJOSE_JWK_QI_STR: &str = "qi";
-const CJOSE_JWK_K_STR: &str = "k";
+// const CJOSE_JWK_EC_P_256_STR: &str = "P-256";
+// const CJOSE_JWK_EC_P_384_STR: &str = "P-384";
+// const CJOSE_JWK_EC_P_521_STR: &str = "P-521";
+// const CJOSE_JWK_KTY_STR: &str = "kty";
+// const CJOSE_JWK_KID_STR: &str = "kid";
+// const CJOSE_JWK_CRV_STR: &str = "crv";
+// const CJOSE_JWK_X_STR: &str = "x";
+// const CJOSE_JWK_Y_STR: &str = "y";
+// const CJOSE_JWK_D_STR: &str = "d";
+// const CJOSE_JWK_N_STR: &str = "n";
+// const CJOSE_JWK_E_STR: &str = "e";
+// const CJOSE_JWK_P_STR: &str = "p";
+// const CJOSE_JWK_Q_STR: &str = "q";
+// const CJOSE_JWK_DP_STR: &str = "dp";
+// const CJOSE_JWK_DQ_STR: &str = "dq";
+// const CJOSE_JWK_QI_STR: &str = "qi";
+// const CJOSE_JWK_K_STR: &str = "k";
+
+#[derive(Debug)]
+pub enum JwkError {
+    InvalidKeySpec,
+    InvalidKeyData,
+    NoPrivateKey,
+}
 
 #[derive(Debug, PartialEq)]
 pub enum KeyType {
@@ -47,7 +52,7 @@ impl KeyType {
     }
 }
 
-pub struct KeySpec {
+pub struct RsaKeySpec {
     pub e: Vec<u8>,
     pub n: Vec<u8>,
     pub d: Vec<u8>,
@@ -58,53 +63,67 @@ pub struct KeySpec {
     pub qi: Vec<u8>,
 }
 
-// void _cjose_jwk_rsa_get(RSA *rsa, BIGNUM **rsa_n, BIGNUM **rsa_e, BIGNUM **rsa_d)
-// {
-//     if (rsa == NULL)
-//         return;
-// #if defined(CJOSE_OPENSSL_11X)
-//     RSA_get0_key(rsa, (const BIGNUM **)rsa_n, (const BIGNUM **)rsa_e, (const BIGNUM **)rsa_d);
-// #else
-//     *rsa_n = rsa->n;
-//     *rsa_e = rsa->e;
-//     *rsa_d = rsa->d;
-// #endif
-// }
+pub struct Jwk {
+    pub key_type: KeyType,
+    pub kid: Option<String>,
+    // pub retained: u32,
+    pub key_size: usize,
+    pub private_key: Option<RsaPrivateKey>,
+    pub public_key: Option<RsaPublicKey>,
+    // fns: *const key_fntable,
+}
 
-// bool _cjose_jwk_rsa_set(RSA *rsa, uint8_t *n, size_t n_len, uint8_t *e, size_t e_len, uint8_t *d, size_t d_len)
-// {
-//     BIGNUM *rsa_n = NULL, *rsa_e = NULL, *rsa_d = NULL;
+impl Jwk {
+    pub fn create_rsa_spec(key: &RsaKeySpec) -> Result<Self, JwkError> {
+        // Private Key
+        if key.n.len() > 0 && key.e.len() > 0 {
+            let key_n = BigUint::from_bytes_be(&key.n);
+            let key_e = BigUint::from_bytes_be(&key.e);
+            let key_d = BigUint::from_bytes_be(&key.d);
+            let key_p = BigUint::from_bytes_be(&key.p);
+            let key_q = BigUint::from_bytes_be(&key.q);
 
-//     // RSA_set0_key doesn't work without each of those on the first call!
-//     if ((n == NULL) || (n_len <= 0) || (e == NULL) || (e_len <= 0))
-//         return false;
+            let key = match RsaPrivateKey::from_components(key_n, key_e, key_d, vec![key_p, key_q])
+            {
+                Ok(k) => k,
+                Err(_) => return Err(JwkError::InvalidKeySpec),
+            };
 
-//     if (n && n_len > 0)
-//         rsa_n = BN_bin2bn(n, n_len, NULL);
-//     if (e && e_len > 0)
-//         rsa_e = BN_bin2bn(e, e_len, NULL);
-//     if (d && d_len > 0)
-//         rsa_d = BN_bin2bn(d, d_len, NULL);
+            return Ok(Self {
+                key_type: KeyType::Rsa,
+                key_size: key.n().bits(),
+                kid: None,
+                private_key: Some(key.clone()),
+                public_key: Some(key.to_public_key()),
+            });
 
-// #if defined(CJOSE_OPENSSL_11X)
-//     return RSA_set0_key(rsa, rsa_n, rsa_e, rsa_d) == 1;
-// #else
-//     rsa->n = rsa_n;
-//     rsa->e = rsa_e;
-//     rsa->d = rsa_d;
-//     return true;
-// #endif
-// }
+        // Public Key
+        } else if key.n.len() > 0 && key.e.len() > 0 {
+            let key_n = BigUint::from_bytes_be(&key.n);
+            let key_e = BigUint::from_bytes_be(&key.e);
+            let key = match RsaPublicKey::new(key_n, key_e) {
+                Ok(k) => k,
+                Err(_) => return Err(JwkError::InvalidKeySpec),
+            };
+            return Ok(Self {
+                key_type: KeyType::Rsa,
+                key_size: 0,
+                kid: None,
+                private_key: None,
+                public_key: Some(key),
+            });
+        }
+        Err(JwkError::InvalidKeySpec)
+    }
 
-// void _cjose_jwk_rsa_get_factors(RSA *rsa, BIGNUM **p, BIGNUM **q)
-// {
-// #if defined(CJOSE_OPENSSL_11X)
-//     RSA_get0_factors(rsa, (const BIGNUM **)p, (const BIGNUM **)q);
-// #else
-//     *p = rsa->p;
-//     *q = rsa->q;
-// #endif
-// }
+    //pub fn get_factors(&self) -> Result<(BigUint, BigUint), JwkError> {
+    //    if let Some(key) = &self.private_key {
+    //        let primes: &[BigUint] = key.primes();
+    //        return Ok((primes.0.clone(), primes.1.clone()));
+    //    }
+    //    return Err(JwkError::NoPrivateKey);
+    //}
+}
 
 // void _cjose_jwk_rsa_set_factors(RSA *rsa, uint8_t *p, size_t p_len, uint8_t *q, size_t q_len)
 // {
@@ -1222,60 +1241,6 @@ pub struct KeySpec {
 //     return NULL;
 // }
 
-// cjose_jwk_t *cjose_jwk_create_RSA_spec(const cjose_jwk_rsa_keyspec *spec, cjose_err *err)
-// {
-//     if (NULL == spec)
-//     {
-//         CJOSE_ERROR(err, CJOSE_ERR_INVALID_ARG);
-//         return NULL;
-//     }
-
-//     bool hasPub = (NULL != spec->n && 0 < spec->nlen) && (NULL != spec->e && 0 < spec->elen);
-//     bool hasPriv = (NULL != spec->n && 0 < spec->nlen) && (NULL != spec->d && 0 < spec->dlen);
-//     if (!hasPub && !hasPriv)
-//     {
-//         CJOSE_ERROR(err, CJOSE_ERR_INVALID_ARG);
-//         return NULL;
-//     }
-
-//     RSA *rsa = NULL;
-//     rsa = RSA_new();
-//     if (!rsa)
-//     {
-//         CJOSE_ERROR(err, CJOSE_ERR_NO_MEMORY);
-//         return NULL;
-//     }
-
-//     if (hasPriv)
-//     {
-//         if (!_cjose_jwk_rsa_set(rsa, spec->n, spec->nlen, spec->e, spec->elen, spec->d, spec->dlen))
-//         {
-//             CJOSE_ERROR(err, CJOSE_ERR_INVALID_ARG);
-//             goto create_RSA_spec_failed;
-//         }
-//         _cjose_jwk_rsa_set_factors(rsa, spec->p, spec->plen, spec->q, spec->qlen);
-//         _cjose_jwk_rsa_set_crt(rsa, spec->dp, spec->dplen, spec->dq, spec->dqlen, spec->qi, spec->qilen);
-//     }
-//     else if (hasPub)
-//     {
-//         if (!_cjose_jwk_rsa_set(rsa, spec->n, spec->nlen, spec->e, spec->elen, NULL, 0))
-//         {
-//             CJOSE_ERROR(err, CJOSE_ERR_INVALID_ARG);
-//             goto create_RSA_spec_failed;
-//         }
-//     }
-
-//     return _RSA_new(rsa, err);
-
-// create_RSA_spec_failed:
-//     if (rsa)
-//     {
-//         RSA_free(rsa);
-//     }
-
-//     return NULL;
-// }
-
 // //////////////// Import ////////////////
 // // internal data & functions -- JWK key import
 
@@ -1452,7 +1417,6 @@ pub struct KeySpec {
 //     // get the decoded value of e
 //     size_t e_buflen = 0;
 //     if (!_decode_json_object_base64url_attribute(jwk_json, CJOSE_JWK_E_STR, &e_buffer, &e_buflen, err))
-//     {
 //         CJOSE_ERROR(err, CJOSE_ERR_INVALID_ARG);
 //         goto import_RSA_cleanup;
 //     }
@@ -1502,7 +1466,6 @@ pub struct KeySpec {
 //     if (!_decode_json_object_base64url_attribute(jwk_json, CJOSE_JWK_QI_STR, &qi_buffer, &qi_buflen, err))
 //     {
 //         CJOSE_ERROR(err, CJOSE_ERR_INVALID_ARG);
-//         goto import_RSA_cleanup;
 //     }
 
 //     // create an rsa keyspec
@@ -1891,33 +1854,7 @@ pub struct KeySpec {
 #[cfg(test)]
 mod test {
     use super::*;
-
-    const RSA_E: &str = "AQAB";
-    const RSA_N: &str = "2Rgbvu_cGMpvVl8DE6aGGX7IE2lKn5c9ZtexriFrCLqBbKt2TBOZko\
-Cn_AbcDjUVk23CxsIj9Z1VfsL_0UeVA_AeOLUWw0F5-JhoK6NBeLpYZOz7HYieTOSJjSxYhoCYtVbLK\
-I27e3NEvckxTs-90CdKl71P7YwrdSrY59hR-u2etyNCRGAPcoDH5xYJxrG2p5FH_Dh_MQ0ugDnJY2_b\
-_-w9NS2Y2atIkzXZDjtcSpjImKpL0eIFF69ptiF8vd4q2j-ougipFBGP9U5bSVzeZ7FyGkJ5Qa2DYc0\
-osYi1QFs3YZKzkKfcblx14u-yZYhUkZHlb_jbfulnUHxDdO_r8Q";
-    const RSA_D: &str = "P9N6tNRIXXGG8lnUyb43xt8ja7GVIv6QKuBXeN6SXWqYCp8OlKdei1\
-gQC2To5bRtt36ZuV3yvI-ZRz-Ffr4Q7at29y0mmBl0BsaoOcwxv5Dp1CJoYfJ8uBao6jyTelfsjcQKz\
-s18xXrKRxIT0Rv6rmwe3iXmjeycCkKiqudKkv8m9RtbvdWH8AFd2ZsCLNblVRrOZ9ZPQQCMVJLf65pF\
-_cBfux-Zz_CJCfq93gFcN3h1tPFLX8UPBMqvqkBZzDx8PGoYgrydz-T8tcqtkDriyEL3mGYe9b2uH_8\
-JnzMMNMFheVPDdNBhyQQVOmQqPj7idv7677eSle4LJZANUYZdwQ";
-    const RSA_P: &str = "8Yhaq4UMiFptSuUMcLUqOJdZ9Jr0z2KG_ZrPaaHIX8gfbtp5DGjhXE\
-E--SwoX9ukEzR6vCewSFcEl20wnT0uTwrVs-Bf2J1L-5tKKeiiwLQxXtk1cG5-PI-ECkqX0AP2K2Xa0\
-wpIjldBE5SBR0S7whANpKxhVFMtNgKog4xNvxU";
-    const RSA_Q: &str = "5hkENNaWQSJ5qWXVJYh0LAHddr1NXwkKIfKNjK8vCYfOHXDgKxW4Ub\
-AIu7wIU9iZcVjTdN2UcaJMe5fBQR9ZEP8bcuY9ZpeUCkv-g9IGw69HUXE7ERBz1es_lZOuJzENwL85A\
-l7jOtVJ2y26g4r30q4jqaL7CcgUZjBKAytjUG0";
-    const RSA_DP: &str = "pAn1epQsRNcVb05Muqdv-2tfnu824TqLb-YahCVqjxK9tm4O1EzO8\
-fcmK9i_uwrTTm_QA8X4xcjDx4xS_he1Qd2b8kSrE9UQ69s17WygTLyU41QmJSwF9F-MT-kFXjOylxrg\
-GYDccj_0ZLXxb1PRKSX5_iNNHxY2mH4JsP4zN1k";
-    const RSA_DQ: &str = "gTTxAL6y9vZl_PKa4w2htoiBlMiuJryLvQ5X3_ULY72nxy54Ipl6v\
-Bwue0UWJAcP-u8XJpu6XKj3a7uGoIv61ql5_2Y8elyJm9Kao-kPNVk6oggEVAu6EBiext57v7Qy9dYr\
-LCKeVI4qf_JIts8VZG-2xO4pK4_3rH5XQTpe9W0";
-    const RSA_QI: &str = "xTJ_ON_6kc9g3ZbunSSt_oqJBguxH2x8HVl2KQXafW-F0_DOv09P1\
-e0fbSdOLhR-V9lLjq8DxOcvCMxkpQr2G8lTaBRVTF_-szu9adi9bgb_-egvc_NAvRkuGE9fUmB2_nAy\
-U-j4VUh1MMSP5qqQhMYvFdAF5y36MpI-pV1SLFQ";
+    use crate::base64::{decode, Base64Variant};
 
     #[test]
     fn test_key_type() {
@@ -1931,8 +1868,35 @@ U-j4VUh1MMSP5qqQhMYvFdAF5y36MpI-pV1SLFQ";
     }
 
     #[test]
-    fn test_keys() {
-        let rsa_spec_private = KeySpec {
+    fn test_rsa_keys() {
+        const RSA_E: &str = "AQAB";
+        const RSA_N: &str = "2Rgbvu_cGMpvVl8DE6aGGX7IE2lKn5c9ZtexriFrCLqBbKt2TBOZko\
+Cn_AbcDjUVk23CxsIj9Z1VfsL_0UeVA_AeOLUWw0F5-JhoK6NBeLpYZOz7HYieTOSJjSxYhoCYtVbLK\
+I27e3NEvckxTs-90CdKl71P7YwrdSrY59hR-u2etyNCRGAPcoDH5xYJxrG2p5FH_Dh_MQ0ugDnJY2_b\
+_-w9NS2Y2atIkzXZDjtcSpjImKpL0eIFF69ptiF8vd4q2j-ougipFBGP9U5bSVzeZ7FyGkJ5Qa2DYc0\
+osYi1QFs3YZKzkKfcblx14u-yZYhUkZHlb_jbfulnUHxDdO_r8Q";
+        const RSA_D: &str = "P9N6tNRIXXGG8lnUyb43xt8ja7GVIv6QKuBXeN6SXWqYCp8OlKdei1\
+gQC2To5bRtt36ZuV3yvI-ZRz-Ffr4Q7at29y0mmBl0BsaoOcwxv5Dp1CJoYfJ8uBao6jyTelfsjcQKz\
+s18xXrKRxIT0Rv6rmwe3iXmjeycCkKiqudKkv8m9RtbvdWH8AFd2ZsCLNblVRrOZ9ZPQQCMVJLf65pF\
+_cBfux-Zz_CJCfq93gFcN3h1tPFLX8UPBMqvqkBZzDx8PGoYgrydz-T8tcqtkDriyEL3mGYe9b2uH_8\
+JnzMMNMFheVPDdNBhyQQVOmQqPj7idv7677eSle4LJZANUYZdwQ";
+        const RSA_P: &str = "8Yhaq4UMiFptSuUMcLUqOJdZ9Jr0z2KG_ZrPaaHIX8gfbtp5DGjhXE\
+E--SwoX9ukEzR6vCewSFcEl20wnT0uTwrVs-Bf2J1L-5tKKeiiwLQxXtk1cG5-PI-ECkqX0AP2K2Xa0\
+wpIjldBE5SBR0S7whANpKxhVFMtNgKog4xNvxU";
+        const RSA_Q: &str = "5hkENNaWQSJ5qWXVJYh0LAHddr1NXwkKIfKNjK8vCYfOHXDgKxW4Ub\
+AIu7wIU9iZcVjTdN2UcaJMe5fBQR9ZEP8bcuY9ZpeUCkv-g9IGw69HUXE7ERBz1es_lZOuJzENwL85A\
+l7jOtVJ2y26g4r30q4jqaL7CcgUZjBKAytjUG0";
+        const RSA_DP: &str = "pAn1epQsRNcVb05Muqdv-2tfnu824TqLb-YahCVqjxK9tm4O1EzO8\
+fcmK9i_uwrTTm_QA8X4xcjDx4xS_he1Qd2b8kSrE9UQ69s17WygTLyU41QmJSwF9F-MT-kFXjOylxrg\
+GYDccj_0ZLXxb1PRKSX5_iNNHxY2mH4JsP4zN1k";
+        const RSA_DQ: &str = "gTTxAL6y9vZl_PKa4w2htoiBlMiuJryLvQ5X3_ULY72nxy54Ipl6v\
+Bwue0UWJAcP-u8XJpu6XKj3a7uGoIv61ql5_2Y8elyJm9Kao-kPNVk6oggEVAu6EBiext57v7Qy9dYr\
+LCKeVI4qf_JIts8VZG-2xO4pK4_3rH5XQTpe9W0";
+        const RSA_QI: &str = "xTJ_ON_6kc9g3ZbunSSt_oqJBguxH2x8HVl2KQXafW-F0_DOv09P1\
+e0fbSdOLhR-V9lLjq8DxOcvCMxkpQr2G8lTaBRVTF_-szu9adi9bgb_-egvc_NAvRkuGE9fUmB2_nAy\
+U-j4VUh1MMSP5qqQhMYvFdAF5y36MpI-pV1SLFQ";
+
+        let rsa_spec_private = RsaKeySpec {
             e: decode(RSA_E, Base64Variant::UrlSafe).expect("Failed to decode RSA e"),
             n: decode(RSA_N, Base64Variant::UrlSafe).expect("Failed to decode RSA e"),
             d: decode(RSA_D, Base64Variant::UrlSafe).expect("Failed to decode RSA e"),
@@ -1942,23 +1906,12 @@ U-j4VUh1MMSP5qqQhMYvFdAF5y36MpI-pV1SLFQ";
             dq: decode(RSA_DQ, Base64Variant::UrlSafe).expect("Failed to decode RSA e"),
             qi: decode(RSA_QI, Base64Variant::UrlSafe).expect("Failed to decode RSA e"),
         };
+
+        let jwk = Jwk::create_rsa_spec(&rsa_spec_private).expect("Failed to create RSA JWK");
+
+        assert_eq!(jwk.key_type, KeyType::Rsa);
+        assert_eq!(jwk.key_size, 2048);
     }
-
-    // START_TEST(test_cjose_jwk_create_RSA_spec)
-    // {
-    //     cjose_err err;
-    //     cjose_jwk_rsa_keyspec specPub;
-    //     cjose_jwk_rsa_keyspec specPriv;
-
-    //     memset(&specPriv, 0, sizeof(cjose_jwk_rsa_keyspec));
-    //     cjose_base64url_decode(RSA_e, strlen(RSA_e), &specPriv.e, &specPriv.elen, &err);
-    //     cjose_base64url_decode(RSA_n, strlen(RSA_n), &specPriv.n, &specPriv.nlen, &err);
-    //     cjose_base64url_decode(RSA_d, strlen(RSA_d), &specPriv.d, &specPriv.dlen, &err);
-    //     cjose_base64url_decode(RSA_p, strlen(RSA_p), &specPriv.p, &specPriv.plen, &err);
-    //     cjose_base64url_decode(RSA_q, strlen(RSA_q), &specPriv.q, &specPriv.qlen, &err);
-    //     cjose_base64url_decode(RSA_dp, strlen(RSA_dp), &specPriv.dp, &specPriv.dplen, &err);
-    //     cjose_base64url_decode(RSA_dq, strlen(RSA_dq), &specPriv.dq, &specPriv.dqlen, &err);
-    //     cjose_base64url_decode(RSA_qi, strlen(RSA_qi), &specPriv.qi, &specPriv.qilen, &err);
 
     //     // everything
     //     cjose_jwk_t *jwk = NULL;

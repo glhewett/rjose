@@ -1,0 +1,16 @@
+{
+  "src/*.rs": {
+    "type": "source"
+    "dispatch": "cargo test {}"
+  },
+  "Cargo.toml": {
+    "type": "config"
+    "dispatch": "cargo test"
+  },
+  "doc/*.txt": {
+    "type": "doc"
+  },
+  "README.markdown": {
+    "type": "doc"
+  }
+}
