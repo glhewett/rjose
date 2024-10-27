@@ -1,3 +1,4 @@
+use rand::rngs::OsRng;
 use rsa::traits::PublicKeyParts;
 use rsa::{BigUint, RsaPrivateKey, RsaPublicKey};
 
@@ -63,10 +64,25 @@ pub struct RsaKeySpec {
     pub qi: Vec<u8>,
 }
 
+impl Default for RsaKeySpec {
+    fn default() -> Self {
+        Self {
+            e: Vec::new(),
+            n: Vec::new(),
+            d: Vec::new(),
+            p: Vec::new(),
+            q: Vec::new(),
+            dp: Vec::new(),
+            dq: Vec::new(),
+            qi: Vec::new(),
+        }
+    }
+}
+
 pub struct Jwk {
     pub key_type: KeyType,
     pub kid: Option<String>,
-    // pub retained: u32,
+    pub retained: u32,
     pub key_size: usize,
     pub private_key: Option<RsaPrivateKey>,
     pub public_key: Option<RsaPublicKey>,
@@ -76,7 +92,7 @@ pub struct Jwk {
 impl Jwk {
     pub fn create_rsa_spec(key: &RsaKeySpec) -> Result<Self, JwkError> {
         // Private Key
-        if key.n.len() > 0 && key.e.len() > 0 {
+        if key.n.len() > 0 && key.e.len() > 0 && key.d.len() > 0 {
             let key_n = BigUint::from_bytes_be(&key.n);
             let key_e = BigUint::from_bytes_be(&key.e);
             let key_d = BigUint::from_bytes_be(&key.d);
@@ -92,28 +108,49 @@ impl Jwk {
             return Ok(Self {
                 key_type: KeyType::Rsa,
                 key_size: key.n().bits(),
+                retained: 1,
                 kid: None,
                 private_key: Some(key.clone()),
-                public_key: Some(key.to_public_key()),
+                public_key: None,
             });
 
         // Public Key
         } else if key.n.len() > 0 && key.e.len() > 0 {
             let key_n = BigUint::from_bytes_be(&key.n);
             let key_e = BigUint::from_bytes_be(&key.e);
+
             let key = match RsaPublicKey::new(key_n, key_e) {
                 Ok(k) => k,
                 Err(_) => return Err(JwkError::InvalidKeySpec),
             };
             return Ok(Self {
                 key_type: KeyType::Rsa,
-                key_size: 0,
+                key_size: key.n().bits(),
+                retained: 1,
                 kid: None,
                 private_key: None,
                 public_key: Some(key),
             });
         }
         Err(JwkError::InvalidKeySpec)
+    }
+
+    pub fn create_rsa_random(key_size: usize, exp: Option<&[u8]>) -> Result<Self, JwkError> {
+        let exp = exp.unwrap_or(b"\x01\x00\x01");
+        let exp = BigUint::from_bytes_be(&exp);
+        let key = match RsaPrivateKey::new_with_exp(&mut OsRng, key_size, &exp) {
+            Ok(k) => k,
+            Err(_) => return Err(JwkError::InvalidKeySpec),
+        };
+
+        Ok(Self {
+            key_type: KeyType::Rsa,
+            key_size: key_size,
+            retained: 1,
+            kid: None,
+            private_key: Some(key.clone()),
+            public_key: None,
+        })
     }
 
     //pub fn get_factors(&self) -> Result<(BigUint, BigUint), JwkError> {
@@ -1868,149 +1905,60 @@ mod test {
     }
 
     #[test]
-    fn test_rsa_keys() {
+    fn test_create_rsa_spec() {
         const RSA_E: &str = "AQAB";
-        const RSA_N: &str = "2Rgbvu_cGMpvVl8DE6aGGX7IE2lKn5c9ZtexriFrCLqBbKt2TBOZko\
-Cn_AbcDjUVk23CxsIj9Z1VfsL_0UeVA_AeOLUWw0F5-JhoK6NBeLpYZOz7HYieTOSJjSxYhoCYtVbLK\
-I27e3NEvckxTs-90CdKl71P7YwrdSrY59hR-u2etyNCRGAPcoDH5xYJxrG2p5FH_Dh_MQ0ugDnJY2_b\
-_-w9NS2Y2atIkzXZDjtcSpjImKpL0eIFF69ptiF8vd4q2j-ougipFBGP9U5bSVzeZ7FyGkJ5Qa2DYc0\
-osYi1QFs3YZKzkKfcblx14u-yZYhUkZHlb_jbfulnUHxDdO_r8Q";
-        const RSA_D: &str = "P9N6tNRIXXGG8lnUyb43xt8ja7GVIv6QKuBXeN6SXWqYCp8OlKdei1\
-gQC2To5bRtt36ZuV3yvI-ZRz-Ffr4Q7at29y0mmBl0BsaoOcwxv5Dp1CJoYfJ8uBao6jyTelfsjcQKz\
-s18xXrKRxIT0Rv6rmwe3iXmjeycCkKiqudKkv8m9RtbvdWH8AFd2ZsCLNblVRrOZ9ZPQQCMVJLf65pF\
-_cBfux-Zz_CJCfq93gFcN3h1tPFLX8UPBMqvqkBZzDx8PGoYgrydz-T8tcqtkDriyEL3mGYe9b2uH_8\
-JnzMMNMFheVPDdNBhyQQVOmQqPj7idv7677eSle4LJZANUYZdwQ";
-        const RSA_P: &str = "8Yhaq4UMiFptSuUMcLUqOJdZ9Jr0z2KG_ZrPaaHIX8gfbtp5DGjhXE\
-E--SwoX9ukEzR6vCewSFcEl20wnT0uTwrVs-Bf2J1L-5tKKeiiwLQxXtk1cG5-PI-ECkqX0AP2K2Xa0\
-wpIjldBE5SBR0S7whANpKxhVFMtNgKog4xNvxU";
-        const RSA_Q: &str = "5hkENNaWQSJ5qWXVJYh0LAHddr1NXwkKIfKNjK8vCYfOHXDgKxW4Ub\
-AIu7wIU9iZcVjTdN2UcaJMe5fBQR9ZEP8bcuY9ZpeUCkv-g9IGw69HUXE7ERBz1es_lZOuJzENwL85A\
-l7jOtVJ2y26g4r30q4jqaL7CcgUZjBKAytjUG0";
-        const RSA_DP: &str = "pAn1epQsRNcVb05Muqdv-2tfnu824TqLb-YahCVqjxK9tm4O1EzO8\
-fcmK9i_uwrTTm_QA8X4xcjDx4xS_he1Qd2b8kSrE9UQ69s17WygTLyU41QmJSwF9F-MT-kFXjOylxrg\
-GYDccj_0ZLXxb1PRKSX5_iNNHxY2mH4JsP4zN1k";
-        const RSA_DQ: &str = "gTTxAL6y9vZl_PKa4w2htoiBlMiuJryLvQ5X3_ULY72nxy54Ipl6v\
-Bwue0UWJAcP-u8XJpu6XKj3a7uGoIv61ql5_2Y8elyJm9Kao-kPNVk6oggEVAu6EBiext57v7Qy9dYr\
-LCKeVI4qf_JIts8VZG-2xO4pK4_3rH5XQTpe9W0";
-        const RSA_QI: &str = "xTJ_ON_6kc9g3ZbunSSt_oqJBguxH2x8HVl2KQXafW-F0_DOv09P1\
-e0fbSdOLhR-V9lLjq8DxOcvCMxkpQr2G8lTaBRVTF_-szu9adi9bgb_-egvc_NAvRkuGE9fUmB2_nAy\
-U-j4VUh1MMSP5qqQhMYvFdAF5y36MpI-pV1SLFQ";
+        const RSA_N: &str  = "2Rgbvu_cGMpvVl8DE6aGGX7IE2lKn5c9ZtexriFrCLqBbKt2TBOZkoCn_AbcDjUVk23CxsIj9Z1VfsL_0UeVA_AeOLUWw0F5-JhoK6NBeLpYZOz7HYieTOSJjSxYhoCYtVbLKI27e3NEvckxTs-90CdKl71P7YwrdSrY59hR-u2etyNCRGAPcoDH5xYJxrG2p5FH_Dh_MQ0ugDnJY2_b_-w9NS2Y2atIkzXZDjtcSpjImKpL0eIFF69ptiF8vd4q2j-ougipFBGP9U5bSVzeZ7FyGkJ5Qa2DYc0osYi1QFs3YZKzkKfcblx14u-yZYhUkZHlb_jbfulnUHxDdO_r8Q";
+        const RSA_D: &str  = "P9N6tNRIXXGG8lnUyb43xt8ja7GVIv6QKuBXeN6SXWqYCp8OlKdei1gQC2To5bRtt36ZuV3yvI-ZRz-Ffr4Q7at29y0mmBl0BsaoOcwxv5Dp1CJoYfJ8uBao6jyTelfsjcQKzs18xXrKRxIT0Rv6rmwe3iXmjeycCkKiqudKkv8m9RtbvdWH8AFd2ZsCLNblVRrOZ9ZPQQCMVJLf65pF_cBfux-Zz_CJCfq93gFcN3h1tPFLX8UPBMqvqkBZzDx8PGoYgrydz-T8tcqtkDriyEL3mGYe9b2uH_8JnzMMNMFheVPDdNBhyQQVOmQqPj7idv7677eSle4LJZANUYZdwQ";
+        const RSA_P: &str  = "8Yhaq4UMiFptSuUMcLUqOJdZ9Jr0z2KG_ZrPaaHIX8gfbtp5DGjhXEE--SwoX9ukEzR6vCewSFcEl20wnT0uTwrVs-Bf2J1L-5tKKeiiwLQxXtk1cG5-PI-ECkqX0AP2K2Xa0wpIjldBE5SBR0S7whANpKxhVFMtNgKog4xNvxU";
+        const RSA_Q: &str  = "5hkENNaWQSJ5qWXVJYh0LAHddr1NXwkKIfKNjK8vCYfOHXDgKxW4UbAIu7wIU9iZcVjTdN2UcaJMe5fBQR9ZEP8bcuY9ZpeUCkv-g9IGw69HUXE7ERBz1es_lZOuJzENwL85Al7jOtVJ2y26g4r30q4jqaL7CcgUZjBKAytjUG0";
+        const RSA_DP: &str = "pAn1epQsRNcVb05Muqdv-2tfnu824TqLb-YahCVqjxK9tm4O1EzO8fcmK9i_uwrTTm_QA8X4xcjDx4xS_he1Qd2b8kSrE9UQ69s17WygTLyU41QmJSwF9F-MT-kFXjOylxrgGYDccj_0ZLXxb1PRKSX5_iNNHxY2mH4JsP4zN1k";
+        const RSA_DQ: &str = "gTTxAL6y9vZl_PKa4w2htoiBlMiuJryLvQ5X3_ULY72nxy54Ipl6vBwue0UWJAcP-u8XJpu6XKj3a7uGoIv61ql5_2Y8elyJm9Kao-kPNVk6oggEVAu6EBiext57v7Qy9dYrLCKeVI4qf_JIts8VZG-2xO4pK4_3rH5XQTpe9W0";
+        const RSA_QI: &str = "xTJ_ON_6kc9g3ZbunSSt_oqJBguxH2x8HVl2KQXafW-F0_DOv09P1e0fbSdOLhR-V9lLjq8DxOcvCMxkpQr2G8lTaBRVTF_-szu9adi9bgb_-egvc_NAvRkuGE9fUmB2_nAyU-j4VUh1MMSP5qqQhMYvFdAF5y36MpI-pV1SLFQ";
 
         let rsa_spec_private = RsaKeySpec {
             e: decode(RSA_E, Base64Variant::UrlSafe).expect("Failed to decode RSA e"),
-            n: decode(RSA_N, Base64Variant::UrlSafe).expect("Failed to decode RSA e"),
-            d: decode(RSA_D, Base64Variant::UrlSafe).expect("Failed to decode RSA e"),
-            p: decode(RSA_P, Base64Variant::UrlSafe).expect("Failed to decode RSA e"),
-            q: decode(RSA_Q, Base64Variant::UrlSafe).expect("Failed to decode RSA e"),
-            dp: decode(RSA_DP, Base64Variant::UrlSafe).expect("Failed to decode RSA e"),
-            dq: decode(RSA_DQ, Base64Variant::UrlSafe).expect("Failed to decode RSA e"),
-            qi: decode(RSA_QI, Base64Variant::UrlSafe).expect("Failed to decode RSA e"),
+            n: decode(RSA_N, Base64Variant::UrlSafe).expect("Failed to decode RSA n"),
+            d: decode(RSA_D, Base64Variant::UrlSafe).expect("Failed to decode RSA d"),
+            p: decode(RSA_P, Base64Variant::UrlSafe).expect("Failed to decode RSA p"),
+            q: decode(RSA_Q, Base64Variant::UrlSafe).expect("Failed to decode RSA q"),
+            dp: decode(RSA_DP, Base64Variant::UrlSafe).expect("Failed to decode RSA dp"),
+            dq: decode(RSA_DQ, Base64Variant::UrlSafe).expect("Failed to decode RSA dq"),
+            qi: decode(RSA_QI, Base64Variant::UrlSafe).expect("Failed to decode RSA qi"),
         };
 
         let jwk = Jwk::create_rsa_spec(&rsa_spec_private).expect("Failed to create RSA JWK");
 
         assert_eq!(jwk.key_type, KeyType::Rsa);
+        assert_eq!(jwk.retained, 1);
         assert_eq!(jwk.key_size, 2048);
+        // assert!(jwk.key_data.len() > 0);
+
+        let rsa_spec_public = RsaKeySpec {
+            e: decode(RSA_E, Base64Variant::UrlSafe).expect("Failed to decode RSA e"),
+            n: decode(RSA_N, Base64Variant::UrlSafe).expect("Failed to decode RSA n"),
+            ..Default::default()
+        };
+
+        let jwk = Jwk::create_rsa_spec(&rsa_spec_public).expect("Failed to create RSA JWK");
+        assert_eq!(jwk.key_type, KeyType::Rsa);
+        assert_eq!(jwk.retained, 1);
+        assert_eq!(jwk.key_size, 2048);
+        // assert!(jwk.key_data.len() > 0);
     }
 
-    //     // everything
-    //     cjose_jwk_t *jwk = NULL;
-    //     jwk = cjose_jwk_create_RSA_spec(&specPriv, &err);
-    //     ck_assert(NULL != jwk);
-    //     ck_assert(1 == jwk->retained);
-    //     ck_assert(CJOSE_JWK_KTY_RSA == jwk->kty);
-    //     ck_assert(2048 == jwk->keysize);
-    //     ck_assert(cjose_jwk_get_keysize(jwk, &err) == jwk->keysize);
-    //     ck_assert(NULL != jwk->keydata);
-    //     ck_assert(cjose_jwk_get_keydata(jwk, &err) == jwk->keydata);
-    //     cjose_jwk_release(jwk);
+    #[test]
+    fn test_create_rsa_random() {
+        let exp = b"\x01\x00\x01";
+        let jwk = Jwk::create_rsa_random(2048, Some(exp)).expect("Failed to create RSA JWK");
+        assert_eq!(jwk.key_type, KeyType::Rsa);
+        assert_eq!(jwk.retained, 1);
+        assert_eq!(jwk.key_size, 2048);
 
-    //     // only private is not possible after the OpenSSL 1.1.x changes because e & n always need to be set
-
-    //     // minimal private
-    //     cjose_get_dealloc()(specPriv.p);
-    //     specPriv.p = NULL;
-    //     cjose_get_dealloc()(specPriv.q);
-    //     specPriv.q = NULL;
-    //     cjose_get_dealloc()(specPriv.dp);
-    //     specPriv.dp = NULL;
-    //     cjose_get_dealloc()(specPriv.dq);
-    //     specPriv.dq = NULL;
-    //     cjose_get_dealloc()(specPriv.qi);
-    //     specPriv.qi = NULL;
-    //     jwk = cjose_jwk_create_RSA_spec(&specPriv, &err);
-    //     ck_assert(NULL != jwk);
-    //     ck_assert(1 == jwk->retained);
-    //     ck_assert(CJOSE_JWK_KTY_RSA == jwk->kty);
-    //     ck_assert(2048 == jwk->keysize);
-    //     ck_assert(cjose_jwk_get_keysize(jwk, &err) == jwk->keysize);
-    //     ck_assert(NULL != jwk->keydata);
-    //     ck_assert(cjose_jwk_get_keydata(jwk, &err) == jwk->keydata);
-    //     cjose_jwk_release(jwk);
-
-    //     cjose_get_dealloc()(specPriv.n);
-    //     specPriv.n = NULL;
-    //     cjose_get_dealloc()(specPriv.d);
-    //     specPriv.d = NULL;
-    //     cjose_get_dealloc()(specPriv.e);
-    //     specPriv.e = NULL;
-
-    //     // public only
-    //     memset(&specPub, 0, sizeof(cjose_jwk_rsa_keyspec));
-    //     cjose_base64url_decode(RSA_e, strlen(RSA_e), &specPub.e, &specPub.elen, &err);
-    //     cjose_base64url_decode(RSA_n, strlen(RSA_n), &specPub.n, &specPub.nlen, &err);
-
-    //     jwk = cjose_jwk_create_RSA_spec(&specPub, &err);
-    //     ck_assert(NULL != jwk);
-    //     ck_assert(1 == jwk->retained);
-    //     ck_assert(CJOSE_JWK_KTY_RSA == jwk->kty);
-    //     ck_assert(2048 == jwk->keysize);
-    //     ck_assert(cjose_jwk_get_keysize(jwk, &err) == jwk->keysize);
-    //     ck_assert(NULL != jwk->keydata);
-    //     ck_assert(cjose_jwk_get_keydata(jwk, &err) == jwk->keydata);
-    //     cjose_jwk_release(jwk);
-
-    //     cjose_get_dealloc()(specPub.n);
-    //     specPub.n = NULL;
-    //     cjose_get_dealloc()(specPub.e);
-    //     specPub.e = NULL;
-    // }
-    // END_TEST
-
-    // START_TEST(test_cjose_jwk_create_RSA_random)
-    // {
-    //     cjose_err err;
-    //     cjose_jwk_t *jwk = NULL;
-    //     uint8_t *e = NULL;
-    //     size_t elen = 0;
-
-    //     e = (uint8_t *)"\x01\x00\x01";
-    //     elen = 3;
-    //     jwk = cjose_jwk_create_RSA_random(2048, e, elen, &err);
-    //     ck_assert(NULL != jwk);
-    //     ck_assert(1 == jwk->retained);
-    //     ck_assert(CJOSE_JWK_KTY_RSA == jwk->kty);
-    //     ck_assert(2048 == jwk->keysize);
-    //     ck_assert(cjose_jwk_get_keysize(jwk, &err) == jwk->keysize);
-    //     ck_assert(NULL != jwk->keydata);
-    //     ck_assert(cjose_jwk_get_keydata(jwk, &err) == jwk->keydata);
-
-    //     cjose_jwk_release(jwk);
-
-    //     e = NULL;
-    //     elen = 0;
-    //     jwk = cjose_jwk_create_RSA_random(2048, e, elen, &err);
-    //     ck_assert(NULL != jwk);
-    //     ck_assert(1 == jwk->retained);
-    //     ck_assert(CJOSE_JWK_KTY_RSA == jwk->kty);
-    //     ck_assert(2048 == jwk->keysize);
-    //     ck_assert(cjose_jwk_get_keysize(jwk, &err) == jwk->keysize);
-    //     ck_assert(NULL != jwk->keydata);
-    //     ck_assert(cjose_jwk_get_keydata(jwk, &err) == jwk->keydata);
-
-    //     cjose_jwk_release(jwk);
-    // }
-    // END_TEST
+        let jwk = Jwk::create_rsa_random(2048, None).expect("Failed to create RSA JWK");
+        assert_eq!(jwk.key_type, KeyType::Rsa);
+        assert_eq!(jwk.retained, 1);
+        assert_eq!(jwk.key_size, 2048);
+    }
 
     // const char *EC_P256_d = "RSSjcBQW_EBxm1gzYhejCdWtj3Id_GuwldwEgSuKCEM";
     // const char *EC_P256_x = "ii8jCnvs4FLc0rteSWxanup22pNDhzizmlGN-bfTcFk";
