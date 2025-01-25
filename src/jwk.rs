@@ -1,6 +1,11 @@
+use p256::ecdsa::{SigningKey, VerifyingKey};
+use p256::elliptic_curve::sec1::ToEncodedPoint;
+use p256::elliptic_curve::FieldBytes;
+use p256::{AffinePoint, SecretKey};
 use rand::rngs::OsRng;
 use rsa::traits::PublicKeyParts;
 use rsa::{BigUint, RsaPrivateKey, RsaPublicKey};
+use std::convert::TryInto;
 
 // const CJOSE_JWK_EC_P_256_STR: &str = "P-256";
 // const CJOSE_JWK_EC_P_384_STR: &str = "P-384";
@@ -53,6 +58,14 @@ impl KeyType {
     }
 }
 
+pub enum PrivateKey {
+    Rsa(Option<RsaPrivateKey>),
+}
+
+pub enum PublicKey {
+    Rsa(Option<RsaPublicKey>),
+}
+
 pub struct RsaKeySpec {
     pub e: Vec<u8>,
     pub n: Vec<u8>,
@@ -79,13 +92,39 @@ impl Default for RsaKeySpec {
     }
 }
 
+pub struct EcKeySpec {
+    pub crv: String,
+    pub x: Vec<u8>,
+    pub y: Vec<u8>,
+    pub d: Vec<u8>,
+}
+
+pub enum EcCurve {
+    P256,
+}
+
+impl EcCurve {
+    pub fn from_str(s: &str) -> Self {
+        match s {
+            "P-256" => Self::P256,
+            _ => panic!("Invalid curve"),
+        }
+    }
+
+    pub fn to_str(&self) -> &str {
+        match self {
+            Self::P256 => "P-256",
+        }
+    }
+}
+
 pub struct Jwk {
     pub key_type: KeyType,
     pub kid: Option<String>,
     pub retained: u32,
     pub key_size: usize,
-    pub private_key: Option<RsaPrivateKey>,
-    pub public_key: Option<RsaPublicKey>,
+    pub private_key: PrivateKey,
+    pub public_key: PublicKey,
     // fns: *const key_fntable,
 }
 
@@ -110,8 +149,8 @@ impl Jwk {
                 key_size: key.n().bits(),
                 retained: 1,
                 kid: None,
-                private_key: Some(key.clone()),
-                public_key: None,
+                private_key: PrivateKey::Rsa(Some(key.clone())),
+                public_key: PublicKey::Rsa(None),
             });
 
         // Public Key
@@ -128,8 +167,8 @@ impl Jwk {
                 key_size: key.n().bits(),
                 retained: 1,
                 kid: None,
-                private_key: None,
-                public_key: Some(key),
+                private_key: PrivateKey::Rsa(None),
+                public_key: PublicKey::Rsa(Some(key)),
             });
         }
         Err(JwkError::InvalidKeySpec)
@@ -148,9 +187,16 @@ impl Jwk {
             key_size: key_size,
             retained: 1,
             kid: None,
-            private_key: Some(key.clone()),
-            public_key: None,
+            private_key: PrivateKey::Rsa(Some(key)),
+            public_key: PublicKey::Rsa(None),
         })
+    }
+
+    pub fn create_ec_spec(key: EcKeySpec) {
+        if key.x.len() > 0 && key.y.len() > 0 {
+            let x = FieldBytes::from(key.x.as_slice());
+            let y = FieldBytes::from(key.y.as_slice());
+        }
     }
 
     //pub fn get_factors(&self) -> Result<(BigUint, BigUint), JwkError> {
@@ -160,6 +206,11 @@ impl Jwk {
     //    }
     //    return Err(JwkError::NoPrivateKey);
     //}
+}
+
+fn _vector_to_array<T, const N: usize>(v: Vec<T>) -> [T; N] {
+    v.try_into()
+        .unwrap_or_else(|v: Vec<T>| panic!("Expected a Vec of length {} but it was {}", N, v.len()))
 }
 
 // void _cjose_jwk_rsa_set_factors(RSA *rsa, uint8_t *p, size_t p_len, uint8_t *q, size_t q_len)
@@ -1960,9 +2011,24 @@ mod test {
         assert_eq!(jwk.key_size, 2048);
     }
 
-    // const char *EC_P256_d = "RSSjcBQW_EBxm1gzYhejCdWtj3Id_GuwldwEgSuKCEM";
-    // const char *EC_P256_x = "ii8jCnvs4FLc0rteSWxanup22pNDhzizmlGN-bfTcFk";
-    // const char *EC_P256_y = "KbkZ7r_DQ-t67pnxPnFDHObTLBqn44BSjcqn0STUkaM";
+    #[test]
+    fn test_create_ec_p256_spec() {
+        const EC_P256_d: &str = "RSSjcBQW_EBxm1gzYhejCdWtj3Id_GuwldwEgSuKCEM";
+        const EC_P256_x: &str = "ii8jCnvs4FLc0rteSWxanup22pNDhzizmlGN-bfTcFk";
+        const EC_P256_y: &str = "KbkZ7r_DQ-t67pnxPnFDHObTLBqn44BSjcqn0STUkaM";
+
+        let ec_spec_private = EcKeySpec {
+            crv: EcCurve::P256,
+            x: decode(EC_P256_x, Base64Variant::UrlSafe).expect("Failed to decode EC x"),
+            y: decode(EC_P256_y, Base64Variant::UrlSafe).expect("Failed to decode EC y"),
+            d: decode(EC_P256_d, Base64Variant::UrlSafe).expect("Failed to decode EC d"),
+        };
+        let jwk = Jwk::create_ec_spec(ec_spec_private).expect("Failed to create EC JWK");
+        assert_eq!(jwk.key_type, KeyType::Ec);
+        assert_eq!(jwk.retained, 1);
+        assert_eq!(jwk.key_size, 256);
+    }
+
     // START_TEST(test_cjose_jwk_create_EC_P256_spec)
     // {
     //     cjose_err err;

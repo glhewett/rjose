@@ -8,6 +8,7 @@ readme = "README.md"
 edition = "2021"
 
 [dependencies]
+p256 = "0.13"
 rand = "0.8"
 rsa = "0.9.6"
 serde = { version ="1", features = ["derive"] }
